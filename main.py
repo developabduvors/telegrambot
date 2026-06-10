@@ -3,6 +3,7 @@ from datetime import datetime
 import html
 import json
 import os
+import random
 import re
 import xml.etree.ElementTree as ET
 
@@ -200,6 +201,80 @@ TOPIC_HASHTAGS = {
     "fullstack": "#Fullstack",
 }
 
+# Mavzuga mos fallback rasmlar (saytdan rasm topilmasa ishlatiladi)
+# Unsplash — har so'rovda yangi rasm beradi (w=800&h=450 o'lcham)
+TOPIC_FALLBACK_IMAGES = {
+    "python": [
+        "https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=800&h=450&fit=crop",
+    ],
+    "javascript": [
+        "https://images.unsplash.com/photo-1627398242454-45a1465c2479?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1592609931095-54a2168ae893?w=800&h=450&fit=crop",
+    ],
+    "react": [
+        "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&h=450&fit=crop",
+    ],
+    "typescript": [
+        "https://images.unsplash.com/photo-1629654297299-c8506221ca97?w=800&h=450&fit=crop",
+    ],
+    "docker": [
+        "https://images.unsplash.com/photo-1605745341112-85968b19335b?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800&h=450&fit=crop",
+    ],
+    "kubernetes": [
+        "https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800&h=450&fit=crop",
+    ],
+    "ai": [
+        "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1655720828018-edd2daec9349?w=800&h=450&fit=crop",
+    ],
+    "llm": [
+        "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1686191128892-3b37add4c844?w=800&h=450&fit=crop",
+    ],
+    "claude": [
+        "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800&h=450&fit=crop",
+    ],
+    "openai": [
+        "https://images.unsplash.com/photo-1655720828018-edd2daec9349?w=800&h=450&fit=crop",
+    ],
+    "github": [
+        "https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1556075798-4825dfaaf498?w=800&h=450&fit=crop",
+    ],
+    "cybersecurity": [
+        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=450&fit=crop",
+        "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&h=450&fit=crop",
+    ],
+    "cloud": [
+        "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=800&h=450&fit=crop",
+    ],
+    "database": [
+        "https://images.unsplash.com/photo-1544383835-bda2bc66a55d?w=800&h=450&fit=crop",
+    ],
+    "devops": [
+        "https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800&h=450&fit=crop",
+    ],
+    "rust": [
+        "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=800&h=450&fit=crop",
+    ],
+    "golang": [
+        "https://images.unsplash.com/photo-1516116216624-53e697fedbea?w=800&h=450&fit=crop",
+    ],
+}
+
+# Hech qaysi mavzu mos kelmasa ishlatiladigan umumiy texnologiya rasmlari
+DEFAULT_FALLBACK_IMAGES = [
+    "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1542831371-29b0f74f9713?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1484417894907-623942c8ee29?w=800&h=450&fit=crop",
+]
+
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
     model = genai.GenerativeModel("gemini-1.5-flash")
@@ -291,6 +366,15 @@ def fetch_og_image(url):
     except Exception as e:
         log(f"Rasm olishda xato: {e}")
     return None
+
+
+def get_fallback_image(title, summary):
+    """Mavzuga mos fallback rasm URL qaytaradi."""
+    text = f"{title} {summary}".lower()
+    for topic, images in TOPIC_FALLBACK_IMAGES.items():
+        if topic in text:
+            return random.choice(images)
+    return random.choice(DEFAULT_FALLBACK_IMAGES)
 
 
 def load_sent_links():
@@ -409,15 +493,17 @@ async def rewrite_with_ai(title, summary):
     clean_title = strip_html(title)
     clean_summary = strip_html(summary)
     prompt = (
-        "Quyidagi texnologik yangilikni o'zbek tilida, dasturchilar uchun "
-        "qiziqarli va professional Telegram posti ko'rinishida qayta yozib ber. "
-        "Yangilik inglizcha bo'lsa, o'zbekchaga tarjima qil. "
-        "Faqat oddiy matn yoz. HTML teglar, Markdown belgilar va kod blok ishlatma. "
-        "2-4 qisqa abzas yoz, oxirida qisqa xulosa qo'sh. "
-        "Faqat Python, JavaScript, React, Next.js, AI, LLM, Claude, GPT, Gemini, "
-        "Docker, GitHub va shunga o'xshash texnologiyalar haqida yoz.\n\n"
-        f"Sarlavha: {clean_title}\n"
-        f"Ma'lumot: {clean_summary}"
+        "You are a tech news writer for an Uzbek Telegram channel aimed at software developers.\n\n"
+        "TASK: Translate and rewrite the following tech news into UZBEK LANGUAGE (O'zbek tili) "
+        "in a professional, engaging Telegram post style.\n\n"
+        "STRICT RULES:\n"
+        "- Write ONLY in Uzbek (O'zbek tilida yoz). Do NOT use English or Russian.\n"
+        "- Write 3-4 short paragraphs.\n"
+        "- End with a short 1-sentence summary starting with 'Xulosa:'\n"
+        "- Use plain text only. No HTML tags, no Markdown, no code blocks.\n"
+        "- Keep technical terms (Python, React, API, etc.) as they are — do not translate them.\n\n"
+        f"Title: {clean_title}\n"
+        f"Content: {clean_summary}"
     )
     try:
         if model is None:
@@ -490,28 +576,28 @@ async def check_and_send_news():
             f"{hashtags}"
         )
 
-        # Yangilik sahifasidan rasm olishga urinamiz
+        # Yangilik sahifasidan rasm olishga urinamiz, topilmasa mavzuga mos fallback
         log("Rasm qidirilmoqda...")
         image_url = fetch_og_image(selected_news["link"])
 
         if image_url:
-            log(f"Rasm topildi: {image_url}")
-            try:
-                photo = URLInputFile(image_url)
-                await bot.send_photo(
-                    chat_id=CHANNEL_ID,
-                    photo=photo,
-                    caption=post_content,
-                )
-                log("Rasm bilan post yuborildi!")
-            except Exception as img_err:
-                log(f"Rasm yuborishda xato, oddiy matn yuboriladi: {img_err}")
-                await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
-                log("Oddiy matn post yuborildi!")
+            log(f"Saytdan rasm topildi: {image_url}")
         else:
-            log("Rasm topilmadi, oddiy matn yuboriladi.")
+            image_url = get_fallback_image(selected_news["title"], selected_news["summary"])
+            log(f"Fallback rasm ishlatiladi: {image_url}")
+
+        try:
+            photo = URLInputFile(image_url)
+            await bot.send_photo(
+                chat_id=CHANNEL_ID,
+                photo=photo,
+                caption=post_content,
+            )
+            log("Rasm bilan post yuborildi!")
+        except Exception as img_err:
+            log(f"Rasm yuborishda xato, oddiy matn yuboriladi: {img_err}")
             await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
-            log("Post yuborildi!")
+            log("Oddiy matn post yuborildi!")
 
         mark_link_as_sent(selected_news["link"])
         return True
