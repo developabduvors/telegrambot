@@ -11,6 +11,7 @@ import requests
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import URLInputFile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -108,6 +109,38 @@ EXCLUDE_KEYWORDS = [
     "taqdimot marosimi",
 ]
 
+# Mavzuga mos hashtaglar lug'ati
+TOPIC_HASHTAGS = {
+    "python": "#Python",
+    "javascript": "#JavaScript",
+    "typescript": "#TypeScript",
+    "java": "#Java",
+    "golang": "#Golang",
+    "rust": "#Rust",
+    "php": "#PHP",
+    "c++": "#CPlusPlus",
+    "c#": "#CSharp",
+    "ai": "#AI",
+    "llm": "#LLM",
+    "gemini": "#Gemini",
+    "chatgpt": "#ChatGPT",
+    "gpt": "#GPT",
+    "claude": "#Claude",
+    "docker": "#Docker",
+    "kubernetes": "#Kubernetes",
+    "devops": "#DevOps",
+    "github": "#GitHub",
+    "open source": "#OpenSource",
+    "cybersecurity": "#CyberSecurity",
+    "xavfsizlik": "#Xavfsizlik",
+    "startup": "#Startup",
+    "database": "#Database",
+    "cloud": "#Cloud",
+    "frontend": "#Frontend",
+    "backend": "#Backend",
+    "fullstack": "#Fullstack",
+}
+
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
     model = genai.GenerativeModel("gemini-1.5-flash")
@@ -137,6 +170,57 @@ def is_coding_news(title, summary):
         return False
 
     return any(keyword in text for keyword in INCLUDE_KEYWORDS)
+
+
+def get_topic_hashtags(title, summary):
+    """Yangilik matniga mos hashtaglarni topadi (max 4 ta)."""
+    text = f"{title} {summary}".lower()
+    found = []
+    for keyword, hashtag in TOPIC_HASHTAGS.items():
+        if keyword in text and hashtag not in found:
+            found.append(hashtag)
+        if len(found) >= 4:
+            break
+    # Har doim asosiy hashtaglar bo'lsin
+    base_tags = ["#TechUz", "#Dasturlash"]
+    all_tags = found + [t for t in base_tags if t not in found]
+    return " ".join(all_tags[:5])
+
+
+def fetch_og_image(url):
+    """Yangilik sahifasidan og:image meta-tegini oladi."""
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/123.0.0.0 Safari/537.36"
+            )
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        # og:image ni regex bilan qidiramiz (BeautifulSoup o'rnatilmagan bo'lishi mumkin)
+        og_image_match = re.search(
+            r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+            response.text,
+            re.IGNORECASE,
+        )
+        if not og_image_match:
+            # Teskari tartibda ham qidiramiz
+            og_image_match = re.search(
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                response.text,
+                re.IGNORECASE,
+            )
+
+        if og_image_match:
+            image_url = og_image_match.group(1).strip()
+            if image_url.startswith("http"):
+                return image_url
+    except Exception as e:
+        log(f"Rasm olishda xato: {e}")
+    return None
 
 
 def load_sent_links():
@@ -312,23 +396,53 @@ async def check_and_send_news():
 
         source = selected_news.get("source") or "Google News"
         log(f"Yuboriladigan yangilik: {selected_news['title']} | Manba: {source}")
+
         final_text = await rewrite_with_ai(
             selected_news["title"],
             selected_news["summary"],
         )
 
+        # Sana va vaqt
+        now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+        # Mavzuga mos hashtaglar
+        hashtags = get_topic_hashtags(selected_news["title"], selected_news["summary"])
+
         post_content = (
-            "<b>Yangi Texno-Xabar</b>\n\n"
+            "🖥 <b>Yangi Texno-Xabar</b>\n"
+            f"🗓 {now_str}\n\n"
             f"{final_text}\n\n"
-            f"<b>Manba:</b> {html.escape(source)}\n"
-            f"<a href='{html.escape(selected_news['link'], quote=True)}'>Batafsil manbada</a>\n\n"
-            "#AI #TechUz #Python"
+            f"📰 <b>Manba:</b> {html.escape(source)}\n"
+            f"🔗 <a href='{html.escape(selected_news['link'], quote=True)}'>Batafsil o'qish</a>\n\n"
+            f"{hashtags}"
         )
 
-        await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
+        # Yangilik sahifasidan rasm olishga urinamiz
+        log("Rasm qidirilmoqda...")
+        image_url = fetch_og_image(selected_news["link"])
+
+        if image_url:
+            log(f"Rasm topildi: {image_url}")
+            try:
+                photo = URLInputFile(image_url)
+                await bot.send_photo(
+                    chat_id=CHANNEL_ID,
+                    photo=photo,
+                    caption=post_content,
+                )
+                log("Rasm bilan post yuborildi!")
+            except Exception as img_err:
+                log(f"Rasm yuborishda xato, oddiy matn yuboriladi: {img_err}")
+                await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
+                log("Oddiy matn post yuborildi!")
+        else:
+            log("Rasm topilmadi, oddiy matn yuboriladi.")
+            await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
+            log("Post yuborildi!")
+
         mark_link_as_sent(selected_news["link"])
-        log("Post yuborildi!")
         return True
+
     except Exception as e:
         log(f"Xato: {e}")
         return False
