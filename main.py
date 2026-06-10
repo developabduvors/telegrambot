@@ -8,7 +8,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 
-# Yangi Google SDK importi
+# YECHIM: Yangi Google SDK
 from google import genai
 import requests
 from aiogram import Bot
@@ -19,7 +19,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Railway'dagi o'zgaruvchilarni olish
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@abduvo")
@@ -29,19 +28,15 @@ DB_FILE = "sent_links.json"
 MAX_SAVED_LINKS = 200
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"
 
-# Global xotira
+# Global o'zgaruvchilar
 RUNNING_SENT_LINKS = set()
 
-# Yangi SDK uchun Client yaratish
+# YECHIM: Yangi SDK bo'yicha Client yaratish
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-SEARCH_QUERIES = [
-    "python programming language", "javascript react nextjs", 
-    "artificial intelligence LLM", "github open source", "docker kubernetes"
-]
-
-INCLUDE_KEYWORDS = ["python", "javascript", "react", "ai", "llm", "docker", "github", "web"]
-EXCLUDE_KEYWORDS = ["siyosat", "futbol", "kino", "narx", "ob-havo"]
+SEARCH_QUERIES = ["python programming", "javascript react", "AI LLM Gemini", "github open source", "docker kubernetes"]
+INCLUDE_KEYWORDS = ["python", "javascript", "ai", "llm", "docker", "github", "react"]
+EXCLUDE_KEYWORDS = ["siyosat", "futbol", "kino", "narx"]
 
 def log(message):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}", flush=True)
@@ -53,8 +48,7 @@ def load_sent_links():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return set(data) if isinstance(data, list) else set()
+                return set(json.load(f))
         except: return set()
     return set()
 
@@ -79,10 +73,11 @@ def get_latest_news_candidates():
     return results
 
 async def rewrite_with_ai(title):
-    prompt = f"Texnologik yangilikni o'zbek tiliga professional tarjima qiling va 3 ta qisqa xatboshida yozing: {title}"
+    # Promptni aniqroq qildik
+    prompt = f"Ushbu texnologik yangilikni o'zbek tiliga professional tarjima qiling. FAQAT o'zbekcha javob qaytaring: {title}"
     try:
         if client:
-            # Yangi SDK bo'yicha chaqiruv
+            # YECHIM: Yangi SDK chaqiruvi (xatolikni oldini oladi)
             response = client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=prompt,
@@ -98,9 +93,8 @@ async def check_and_send_news():
         candidates = get_latest_news_candidates()
         for news in candidates:
             text = await rewrite_with_ai(news['title'])
-            
             try:
-                await bot.send_message(chat_id=CHANNEL_ID, text=text)
+                await bot.send_message(chat_id=CHANNEL_ID, text=f"🖥 <b>Texno-Yangilik</b>\n\n{text}\n\n🔗 <a href='{news['link']}'>Batafsil</a>")
                 RUNNING_SENT_LINKS.add(news['link'])
                 save_sent_links(RUNNING_SENT_LINKS)
                 log(f"Yuborildi: {news['title']}")
@@ -113,10 +107,9 @@ async def check_and_send_news():
 async def main():
     global RUNNING_SENT_LINKS
     RUNNING_SENT_LINKS = load_sent_links()
-    log("Bot muvaffaqiyatli ishga tushdi.")
+    log("Bot ishga tushdi.")
     while True:
         await check_and_send_news()
-        log(f"{POLL_INTERVAL_SECONDS} soniya kutish...")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
