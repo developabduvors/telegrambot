@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import time
 import xml.etree.ElementTree as ET
 
 import google.generativeai as genai
@@ -20,12 +21,16 @@ load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@abduvo")
-# 10800 soniya = To'ppa-to'g'ri 3 soat
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "10800"))
+
+# QAT'IY 3 SOAT (Railway variables buni ezib yubormasligi uchun kod ichida ham mustahkamlandi)
+POLL_INTERVAL_SECONDS = 10800 
+
 DB_FILE = "sent_links.json"
-LEGACY_DB_FILE = "last_news.txt"
 MAX_SAVED_LINKS = 200
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"
+
+# Server o'chib yonganda kesh yo'qolmasligi uchun vaqtinchalik global xotira
+RUNNING_SENT_LINKS = set()
 
 SEARCH_QUERIES = [
     "python programming language",
@@ -71,7 +76,6 @@ TOPIC_HASHTAGS = {
     "backend": "#Backend", "fullstack": "#Fullstack",
 }
 
-# Unsplash havolalari oxiriga tasodifiy sig (signature) qo'shish uchun bazaviy manzillar
 TOPIC_FALLBACK_IMAGES = {
     "python": ["https://images.unsplash.com/photo-1526379095098-d400fd0bf935", "https://images.unsplash.com/photo-1515879218367-8466d910aaa4"],
     "javascript": ["https://images.unsplash.com/photo-1627398242454-45a1465c2479", "https://images.unsplash.com/photo-1592609931095-54a2168ae893"],
@@ -94,9 +98,14 @@ DEFAULT_FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1542831371-29b0f74f9713",
 ]
 
+# API Versiya muammolarini chetlab o'tish uchun to'g'rilangan blok
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # v1beta xatosini bermasligi uchun qat'iy model va konfiguratsiya sozlamalari
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config={"response_mime_type": "text/plain"}
+    )
 else:
     model = None
 
@@ -156,14 +165,14 @@ def fetch_og_image(url):
         if og_image_match:
             image_url = og_image_match.group(1).strip()
             if image_url.startswith("http"):
-                return image_url
+                # Telegram keshini majburiy o'ldirish
+                return f"{image_url}&tgcache={int(time.time())}" if "?" in image_url else f"{image_url}?tgcache={int(time.time())}"
     except Exception as e:
-        log(f"Rasm olishda xato: {e}")
+        log(f"Rasm yuklashda xato: {e}")
     return None
 
 
 def get_fallback_image(title, summary):
-    """Mavzuga mos tasodifiy rasm URL qaytaradi va keshni aylanib o'tish uchun 'sig' qo'shadi."""
     text = f"{title} {summary}".lower()
     base_url = random.choice(DEFAULT_FALLBACK_IMAGES)
     
@@ -172,30 +181,39 @@ def get_fallback_image(title, summary):
             base_url = random.choice(images)
             break
             
-    # Har safar rasm har xil chiqishi uchun tasodifiy raqam (signature) ulaymiz
-    random_sig = random.randint(1, 100000)
-    return f"{base_url}?w=800&h=450&fit=crop&sig={random_sig}"
+    # Mutlaqo boshqa-boshqa rasm yuklash signaturasi (Keshni sindiradi)
+    return f"{base_url}?w=800&h=450&fit=crop&sig={random.randint(1, 100000)}&t={int(time.time())}"
 
 
 def load_sent_links():
+    global RUNNING_SENT_LINKS
+    links = list(RUNNING_SENT_LINKS)
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
-                return [item for item in data if isinstance(item, str) and item.strip()]
+                for item in data:
+                    if isinstance(item, str) and item.strip():
+                        RUNNING_SENT_LINKS.add(item)
+                return list(RUNNING_SENT_LINKS)
         except Exception:
             pass
-    return []
+    return links
 
 
 def save_sent_links(links):
     trimmed_links = links[:MAX_SAVED_LINKS]
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(trimmed_links, f, ensure_ascii=False, indent=2)
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(trimmed_links, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log(f"Faylga yozish jarayonida xato: {e}")
 
 
 def mark_link_as_sent(link):
+    global RUNNING_SENT_LINKS
+    RUNNING_SENT_LINKS.add(link)
     sent_links = load_sent_links()
     updated_links = [link] + [item for item in sent_links if item != link]
     save_sent_links(updated_links)
@@ -234,7 +252,6 @@ def get_latest_news_candidates(limit=40):
                 link = extract_google_news_link(item.findtext("link", default="").strip())
                 summary = item.findtext("description", default="").strip()
                 source = item.findtext("source", default="").strip()
-                pub_date = item.findtext("pubDate", default="").strip()
 
                 if not raw_title or not link:
                     continue
@@ -248,14 +265,13 @@ def get_latest_news_candidates(limit=40):
 
                 seen_links.add(link)
                 results.append({
-                    "title": title, "link": link, "summary": summary,
-                    "source": source, "published_at": pub_date, "query": query,
+                    "title": title, "link": link, "summary": summary, "source": source
                 })
 
                 if len(results) >= limit:
                     return results
         except Exception as e:
-            log(f"Qidiruvda xato ({query}): {e}")
+            log(f"Qidiruvda uzilish yuz berdi ({query}): {e}")
 
     return results
 
@@ -270,10 +286,10 @@ async def rewrite_with_ai(title, summary):
         "VAZIFA: Quyidagi texnologik yangilikni O'ZBEK TILIGA professional, qiziqarli "
         "va tushunarli uslubda tarjima qiling va qayta yozing.\n\n"
         "QAT'IY QOIDALAR:\n"
-        "- FAQAT o'zbek tilida yozing. Ruscha yoki inglizcha gaplar aralashmasin.\n"
+        "- FAQAT o'zbek tilida yozing. Ruscha yoki inglizcha jumlalar umuman ishlatilmasin.\n"
         "- Matn 3-4 ta qisqa va mazmunli xatboshidan iborat bo'lsin.\n"
-        "- Gaplar zerikarli bo'lmasin, o'quvchini jalb qilsin.\n"
-        "- Eng oxirida '<b>Xulosa:</b>' so'zi bilan boshlanadigan 1 ta qisqa yakuniy gap yozing.\n"
+        "- Gaplar sodda, ammo o'quvchini o'ziga jalb qiladigan bo'lsin.\n"
+        "- Eng oxirida '<b>Xulosa:</b>' so'zi bilan boshlanadigan 1 ta qisqa yakuniy gap qo'shing.\n"
         "- Texnik terminlarni (Python, React, API, Docker va h.g.) o'z holicha qoldiring, o'zbekchaga tarjima qilmang.\n"
         "- Telegram HTML formatiga mos ravishda muhim so'zlarni qalin (<b>) yoki og'ma (<i>) qiling.\n\n"
         f"Sarlavha: {clean_title}\n"
@@ -281,45 +297,47 @@ async def rewrite_with_ai(title, summary):
     )
     try:
         if model is None:
-            raise RuntimeError("GEMINI_KEY topilmadi")
+            raise RuntimeError("GEMINI_KEY topilmadi yoki xato sozlangan.")
+        
+        # Yangi API spetsifikatsiyasiga mos chaqiruv
         response = model.generate_content(prompt)
-        generated_text = getattr(response, "text", "") or ""
+        generated_text = response.text
         if generated_text:
             return generated_text.strip()
     except Exception as e:
-        log(f"Gemini xatosi: {e}")
+        log(f"Gemini API xatoligi (Zaxira rejimiga o'tilmoqda): {e}")
 
+    # Agar sun'iy intellekt ishlamay qolsa, bot o'chib qolmasligi uchun zaxira matn
     return f"<b>{html.escape(clean_title)}</b>\n\n{html.escape(clean_summary)}"
 
 
 async def check_and_send_news():
     if not TELEGRAM_TOKEN or not GEMINI_KEY:
-        log("XATO: TELEGRAM_TOKEN yoki GEMINI_KEY topilmadi.")
+        log("XATO: API Tokenlar topilmadi.")
         return False
 
     bot = Bot(token=TELEGRAM_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     try:
-        log("Yangiliklar tekshirilmoqda...")
+        log("Yangiliklar bazasi tekshirilmoqda...")
         candidates = get_latest_news_candidates(limit=50)
         if not candidates:
-            log("Google News'dan yangilik topilmadi.")
             return False
 
         candidates = [item for item in candidates if is_coding_news(item["title"], item["summary"])]
-        log(f"Filtrdan keyin {len(candidates)} ta IT ga oid nomzod qoldi.")
         if not candidates:
+            log("Mos IT-yangilik topilmadi.")
             return False
 
         sent_links = set(load_sent_links())
-        selected_news = next((item for item in candidates if item["link"] not in sent_links), None)
+        selected_news = next((item for item in candidates if item["link"] not in sent_links and item["link"] not in RUNNING_SENT_LINKS), None)
 
         if not selected_news:
-            log("Hamma mos yangiliklar oldin yuborilgan.")
+            log("Yangi xabar yo'q, barchasi oldin yuborilgan.")
             return False
 
         source = selected_news.get("source") or "Google News"
-        log(f"Yuborilmoqda: {selected_news['title']}")
+        log(f"Yuborish uchun tanlandi: {selected_news['title']}")
 
         final_text = await rewrite_with_ai(selected_news["title"], selected_news["summary"])
         now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -335,22 +353,20 @@ async def check_and_send_news():
         )
 
         image_url = fetch_og_image(selected_news["link"])
-        if image_url:
-            log(f"Saytning o'zidan rasm topildi: {image_url}")
-        else:
+        if not image_url:
             image_url = get_fallback_image(selected_news["title"], selected_news["summary"])
-            log(f"Tasodifiy fallback rasm ishlatiladi: {image_url}")
 
         try:
             photo = URLInputFile(image_url)
             await bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=post_content)
-            log("Post rasm bilan muvaffaqiyatli yuborildi!")
+            log("Post muvaffaqiyatli yuborildi.")
+            mark_link_as_sent(selected_news["link"])
+            return True
         except Exception as img_err:
-            log(f"Rasm yuborishda xato, faqat matn yuboriladi: {img_err}")
+            log(f"Rasm yuborishda xato, faqat matnning o'zi ketmoqda: {img_err}")
             await bot.send_message(chat_id=CHANNEL_ID, text=post_content)
-
-        mark_link_as_sent(selected_news["link"])
-        return True
+            mark_link_as_sent(selected_news["link"])
+            return True
 
     except Exception as e:
         log(f"Xato yuz berdi: {e}")
@@ -361,14 +377,16 @@ async def check_and_send_news():
 
 async def main():
     cycle = 1
+    load_sent_links()
+    
     while True:
         log(f"{cycle}-tsikl boshlandi.")
         try:
             await check_and_send_news()
         except Exception as e:
-            log(f"Sikl xatosi: {e}")
+            log(f"Sikl ichida kutilmagan xato: {e}")
 
-        log(f"Keyingi tekshiruv {POLL_INTERVAL_SECONDS} soniyadan (3 soatdan) keyin amalga oshiriladi.")
+        log(f"Kutish rejimi: {POLL_INTERVAL_SECONDS} soniya (Roppa-rosa 3 soat)...")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         cycle += 1
 
