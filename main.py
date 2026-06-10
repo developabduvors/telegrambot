@@ -24,31 +24,41 @@ DB_FILE = "sent_links.json"
 LEGACY_DB_FILE = "last_news.txt"
 MAX_SAVED_LINKS = 200
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"
+
+# Faqat aniq texnologiya va dasturlash so'rovlari
 SEARCH_QUERIES = [
-    "dasturlash",
-    "sun'iy intellekt",
-    "python OR javascript OR java OR golang OR rust",
-    "backend OR frontend OR api OR database",
-    "startup OR open source OR github",
-    "texnologiya",
+    "python programming language",
+    "javascript framework react nextjs",
+    "artificial intelligence Claude GPT Gemini Codex",
+    "machine learning deep learning LLM",
+    "github open source release",
+    "docker kubernetes devops",
+    "web development frontend backend",
+    "rust golang typescript programming",
+    "openai anthropic google deepmind",
+    "software developer tools IDE",
 ]
 
+# Faqat aniq dasturlash va AI kalit so'zlar
 INCLUDE_KEYWORDS = [
-    "dastur",
-    "dasturchi",
-    "program",
-    "developer",
-    "software",
     "python",
     "javascript",
     "typescript",
-    "java",
+    "java ",
     "golang",
-    "go ",
-    "rust",
+    "rust ",
     "php",
     "c++",
     "c#",
+    "swift",
+    "kotlin",
+    "react",
+    "next.js",
+    "nextjs",
+    "vue",
+    "angular",
+    "node.js",
+    "nodejs",
     "frontend",
     "backend",
     "fullstack",
@@ -59,54 +69,103 @@ INCLUDE_KEYWORDS = [
     "github",
     "gitlab",
     "open source",
+    "programming",
+    "developer",
+    "software engineer",
+    "code",
     "coding",
-    "kod",
-    "kodlash",
-    "sun'iy intellekt",
-    "ai",
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
     "llm",
+    "large language model",
     "gemini",
     "chatgpt",
-    "gpt",
+    "gpt-",
     "claude",
-    "agent",
+    "codex",
+    "copilot",
+    "openai",
+    "anthropic",
+    "hugging face",
+    "neural network",
     "database",
-    "postgres",
+    "postgresql",
     "mongodb",
+    "redis",
     "sql",
-    "cloud",
     "docker",
     "kubernetes",
     "devops",
+    "ci/cd",
     "cybersecurity",
-    "xavfsizlik",
-    "startup",
+    "cloud computing",
+    "aws",
+    "azure",
+    "vercel",
+    "startup tech",
+    "ide",
+    "vs code",
+    "linux kernel",
+    "web3",
+    "blockchain developer",
 ]
 
+# Keng exclude ro'yxati — dasturlashga aloqasi yo'q mavzular
 EXCLUDE_KEYWORDS = [
+    # Shaxslar va siyosat
+    "boshqaruv raisi",
+    "tayinlandi",
+    "prezident",
+    "vazir",
+    "hokimi",
+    "parlament",
+    "saylov",
+    "siyosat",
+    "diplomatiya",
+    "elchi",
+    "tashkent metro",
+    "aviakompaniya",
+    "airways",
+    "airline",
+    # Tovarlar va narx
     "telefon",
     "smartfon",
     "iphone",
     "android telefon",
     "noutbuk",
     "notebook",
-    "laptop",
-    "kompyuter narx",
+    "laptop narx",
     "planshet",
     "televizor",
-    "tv",
     "kamera",
     "quloqchin",
     "airpods",
-    "gadjet",
-    "gadget",
-    "processor narx",
-    "videokarta narx",
+    "gadget review",
     "narx",
     "aksiya",
     "chegirma",
-    "review",
-    "taqdimot marosimi",
+    "sotib olish",
+    # Sport va ko'ngilochar
+    "futbol",
+    "basketbol",
+    "tennis",
+    "sport",
+    "chempionat",
+    "o'yin natija",
+    "kino",
+    "film",
+    "serial",
+    "muzika",
+    "konsert",
+    # Boshqa
+    "ob-havo",
+    "zilzila",
+    "voqea",
+    "tashrif",
+    "uchrashuv",
+    "imzolandi",
+    "shartnoma",
 ]
 
 # Mavzuga mos hashtaglar lug'ati
@@ -163,13 +222,24 @@ def strip_html(raw_text):
 
 
 def is_coding_news(title, summary):
-    """Faqat dasturlashga oid yangiliklarni qoldiradi."""
+    """Faqat dasturlash va AI ga oid yangiliklarni qoldiradi."""
+    title_lower = title.lower()
     text = f"{title} {summary}".lower()
 
+    # Exclude ro'yxatida bo'lsa — sarlavhada ham, matnda ham tekshiramiz
+    if any(keyword in title_lower for keyword in EXCLUDE_KEYWORDS):
+        return False
     if any(keyword in text for keyword in EXCLUDE_KEYWORDS):
         return False
 
-    return any(keyword in text for keyword in INCLUDE_KEYWORDS)
+    # Sarlavhada kamida 1 ta include kalit so'z bo'lishi shart
+    title_match = any(keyword in title_lower for keyword in INCLUDE_KEYWORDS)
+    if not title_match:
+        return False
+
+    # Umumiy matnda kamida 2 ta include kalit so'z bo'lishi shart
+    match_count = sum(1 for keyword in INCLUDE_KEYWORDS if keyword in text)
+    return match_count >= 2
 
 
 def get_topic_hashtags(title, summary):
@@ -269,9 +339,9 @@ def build_google_news_url(query):
     """Google News RSS qidiruv URL manzilini yasaydi."""
     params = {
         "q": query,
-        "hl": "uz",
-        "gl": "UZ",
-        "ceid": "UZ:uz",
+        "hl": "en",
+        "gl": "US",
+        "ceid": "US:en",
     }
     prepared = requests.PreparedRequest()
     prepared.prepare_url(GOOGLE_NEWS_BASE_URL, params)
@@ -341,8 +411,11 @@ async def rewrite_with_ai(title, summary):
     prompt = (
         "Quyidagi texnologik yangilikni o'zbek tilida, dasturchilar uchun "
         "qiziqarli va professional Telegram posti ko'rinishida qayta yozib ber. "
+        "Yangilik inglizcha bo'lsa, o'zbekchaga tarjima qil. "
         "Faqat oddiy matn yoz. HTML teglar, Markdown belgilar va kod blok ishlatma. "
-        "2-4 qisqa abzas yoz, oxirida qisqa xulosa qo'sh.\n\n"
+        "2-4 qisqa abzas yoz, oxirida qisqa xulosa qo'sh. "
+        "Faqat Python, JavaScript, React, Next.js, AI, LLM, Claude, GPT, Gemini, "
+        "Docker, GitHub va shunga o'xshash texnologiyalar haqida yoz.\n\n"
         f"Sarlavha: {clean_title}\n"
         f"Ma'lumot: {clean_summary}"
     )
